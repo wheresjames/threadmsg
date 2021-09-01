@@ -1,0 +1,10 @@
+name            threadmsg
+version         0.1.1
+description     Thread safe message queue
+company         wheresjames
+author          Robert Umbehant
+email           threadmsg@wheresjames.com
+url             https://github.com/wheresjames/threadmsg
+repo            git+ssh://git@github.com/wheresjames/threadmsg.git
+bugs            https://github.com/wheresjames/threadmsg/issues
+license         MIT
