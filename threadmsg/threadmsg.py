@@ -4,6 +4,7 @@ from __future__ import print_function
 import threading
 import asyncio
 import traceback
+from inspect import signature
 
 Log = print
 
@@ -40,8 +41,9 @@ class ThreadMsg():
                                 zero is returned, the thread will exit.
         @param [in] p       - Tuple containing other parameters to pass to the function
         @param [in] start   - True if the thread should start right away.
+        @param [in] deffk   - Default function key for function mapping
     '''
-    def __init__(self, f, p=(), start=True):
+    def __init__(self, f, p=(), start=True, deffk=None):
 
         self.msgs = []
         self.msgcnt = 0
@@ -50,6 +52,7 @@ class ThreadMsg():
         self.loops = 0
         self.lock = threading.Lock()
         self.cond = threading.Condition(self.lock)
+        self.defFunKey = deffk
 
         # Thread
         self.thread = threading.Thread(target=self.threadLoop, args=(f, p,))
@@ -61,6 +64,138 @@ class ThreadMsg():
     '''
     def __del__(self):
         self.join()
+
+
+    ''' Sets a default function key to use with function mapping
+    '''
+    def setDefaultFunctionKey(fk):
+        self.defFunKey = fk
+
+    ''' Maps a call to set functions
+
+            You can use this message to map messages to a function.
+
+        @param [in] f       - Function or key in the function map
+        @param [in] fm      - Map of functions to call
+        @param [in] params  - dict containing function parameters to pass to function
+        @param [in] kwargs  - keyword arguments to pass to function
+
+        @begincode
+
+            fm = {
+                    'open'  : self.open,
+                    'close' : self.close
+                }
+
+            @staticmethod
+            async def mainThread(ctx):
+                while msg := ctx.getMsg()
+                    ctx.mapCall('_funName', fm, msg['data'])
+
+        @endcode
+
+    '''
+    def mapCall(self, f, fm, params={}, /, **kwargs):
+
+        # Merge arguments
+        params.update(kwargs)
+
+        # Look up function name if not callable
+        if not callable(f):
+            if not isinstance(f, str) or not f:
+                f = self.defFunKey
+            if not isinstance(f, str) or not f or f not in params:
+                raise Exception('Function not found : %s' % f)
+            f = params[f]
+            if not isinstance(f, str) or not f or f not in fm:
+                raise Exception('Function map not found : %s' % f)
+            f = fm[f]
+
+        # Map the parameters
+        p = []
+        sig = signature(f).parameters
+        for v in sig:
+            if v not in params:
+                raise Exception('Function parameter not found : %s' % v)
+            p.append(params[v])
+
+        # Make the call
+        return f(*p)
+
+
+    ''' Maps a message to set functions
+
+            You can use this message to map a thread message to a function.
+            This function will ensure any callback function is called.
+
+        @param [in] f       - Function or key in the function map
+        @param [in] fm      - Map of functions to call
+        @param [in] msg     - dict containing function parameters to pass to function
+
+        @begincode
+
+            fm = {
+                    'open'  : self.open,
+                    'close' : self.close
+                }
+
+            @staticmethod
+            async def mainThread(ctx):
+                while msg := ctx.getMsg()
+                    ctx.mapMsg('_funName', fm, msg)
+
+        @endcode
+
+    '''
+    def mapMsg(self, f, fm, msg):
+        try:
+            r = self.mapCall(f, fm, msg['data'])
+        except Exception as e:
+            if callable(msg['cb']):
+                msg['cb'](None, e)
+            else:
+                raise e
+            return
+        if callable(msg['cb']):
+            msg['cb'](r, None)
+        return r
+
+    ''' Find argument by type or return default
+        @param [in] i       - Index of argument
+        @param [in] t       - Type to find
+        @param [in] d       - Default value to return if not found
+        @param [in] args    - Argument lists to search
+    '''
+    @staticmethod
+    def findByType(i, t, d, *args):
+        for v in args:
+            if (t == callable and callable(v)) or t == type(v):
+                if not i:
+                    return v
+                i -= 1
+        return d
+
+
+    ''' Make a call via the thread message loop
+        @params [in] args  - In any order
+                                fn[0]   - Callback function
+                                            cb(returnVal, errorObj)
+                                str[0]  - Name of function to call
+                                dict[0] - Parameters to pass to function
+        @params [in] kwargs - Keyword arguments to pass to function
+
+        Return value will be passed to the callback if specified
+    '''
+    def call(self, *args, **kwargs):
+        cb = self.findByType(0, callable, *args)
+        fn = self.findByType(0, str, '', *args)
+        params = self.findByType(0, dict, {}, *args)
+        params.update(kwargs)
+        if fn:
+            if not self.defFunKey:
+                raise Exception('Default function key not set')
+            params[self.defFunKey] = fn
+        self.addMsg(params, cb)
 
 
     ''' Static function that handles thread
@@ -157,9 +292,9 @@ class ThreadMsg():
 
     ''' Adds a message to the threads queue
     '''
-    def addMsg(self, msg):
+    def addMsg(self, msg, cb=None):
         self.cond.acquire()
-        self.msgs.insert(0, msg)
+        self.msgs.insert(0, {'data':msg, 'cb':cb})
         self.msgcnt += 1
         self.cond.notify()
         self.cond.release()
