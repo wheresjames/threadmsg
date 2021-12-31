@@ -4,23 +4,9 @@ from __future__ import print_function
 import threading
 import asyncio
 import traceback
-from inspect import signature
+import inspect
 
 Log = print
-
-#==================================================================================================
-
-''' Run specified function in a new async loop
-    @param [in] f   - Function to run
-'''
-def asyncLoop(f):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(f)
-    finally:
-        loop.run_until_complete(loop.shutdown_asyncgens())
-        loop.close()
 
 
 #==================================================================================================
@@ -95,32 +81,87 @@ class ThreadMsg():
         @endcode
 
     '''
-    def mapCall(self, f, fm, params={}, /, **kwargs):
+    def mapCall(self, _f, _fm, _params={}, **kwargs):
 
         # Merge arguments
-        params.update(kwargs)
+        _params.update(kwargs)
 
         # Look up function name if not callable
-        if not callable(f):
-            if not isinstance(f, str) or not f:
-                f = self.defFunKey
-            if not isinstance(f, str) or not f or f not in params:
-                raise Exception('Function not found : %s' % f)
-            f = params[f]
-            if not isinstance(f, str) or not f or f not in fm:
-                raise Exception('Function map not found : %s' % f)
-            f = fm[f]
+        if not callable(_f):
+            if not isinstance(_f, str) or not _f:
+                _f = self.defFunKey
+            if not isinstance(_f, str) or not _f or _f not in _params:
+                raise Exception('Function not found : %s' % _f)
+            _f = _params[_f]
+            if not isinstance(_f, str) or not _f or _f not in _fm:
+                raise Exception('Function map not found : %s' % _f)
+            _f = _fm[_f]
 
         # Map the parameters
         p = []
-        sig = signature(f).parameters
+        sig = inspect.signature(_f).parameters
         for v in sig:
-            if v not in params:
+            if v not in _params:
                 raise Exception('Function parameter not found : %s' % v)
-            p.append(params[v])
+            p.append(_params[v])
 
         # Make the call
-        return f(*p)
+        return _f(*p)
+
+
+    ''' Asynchronously maps a call to set functions
+
+            You can use this message to map messages to a function.
+
+        @param [in] f       - Function or key in the function map
+        @param [in] fm      - Map of functions to call
+        @param [in] params  - dict containing function parameters to pass to function
+        @param [in] kwargs  - keyword arguments to pass to function
+
+        @begincode
+
+            fm = {
+                    'open'  : self.open,
+                    'close' : self.close
+                }
+
+            @staticmethod
+            async def mainThread(ctx):
+                while msg := ctx.getMsg()
+                    await ctx.mapCall('_funName', fm, msg['data'])
+
+        @endcode
+
+    '''
+    async def mapCallAsync(self, _f, _fm, _params={}, **kwargs):
+
+        # Merge arguments
+        _params.update(kwargs)
+
+        # Look up function name if not callable
+        if not callable(_f):
+            if not isinstance(_f, str) or not _f:
+                _f = self.defFunKey
+            if not isinstance(_f, str) or not _f or _f not in _params:
+                raise Exception('Function not found : %s' % _f)
+            _f = _params[_f]
+            if not isinstance(_f, str) or not _f or _f not in _fm:
+                raise Exception('Function map not found : %s' % _f)
+            _f = _fm[_f]
+
+        # Map the parameters
+        p = []
+        sig = inspect.signature(_f).parameters
+        for v in sig:
+            if v not in _params:
+                raise Exception('Function parameter not found : %s' % v)
+            p.append(_params[v])
+
+        # Make the call
+        r = _f(*p)
+        if inspect.isawaitable(r):
+            r = await r
+        return r
 
 
     ''' Maps a message to set functions
@@ -152,24 +193,75 @@ class ThreadMsg():
             r = self.mapCall(f, fm, msg['data'])
         except Exception as e:
             if callable(msg['cb']):
-                msg['cb'](None, e)
+                msg['cb'](self, None, e)
             else:
                 raise e
             return
         if callable(msg['cb']):
-            msg['cb'](r, None)
+            msg['cb'](self, r, None)
         return r
+
+
+    ''' Asynchronously maps a message to set functions
+
+            You can use this message to map a thread message to a function.
+            This function will ensure any callback function is called.
+
+        @param [in] f       - Function or key in the function map
+        @param [in] fm      - Map of functions to call
+        @param [in] msg     - dict containing function parameters to pass to function
+
+        @begincode
+
+            fm = {
+                    'open'  : self.open,
+                    'close' : self.close
+                }
+
+            @staticmethod
+            async def mainThread(ctx):
+                while msg := ctx.getMsg()
+                    ctx.mapMsg('_funName', fm, msg)
+
+        @endcode
+
+    '''
+    async def mapMsgAsync(self, f, fm, msg):
+        try:
+            r = self.mapCall(f, fm, msg['data'])
+            if inspect.isawaitable(r):
+                r = await r
+        except Exception as e:
+            if callable(msg['cb']):
+                cbr = msg['cb'](self, None, e)
+                if inspect.isawaitable(cbr):
+                    cbr = await cbr
+            else:
+                raise e
+            return
+        if callable(msg['cb']):
+            cbr = msg['cb'](self, r, None)
+            if inspect.isawaitable(cbr):
+                cbr = await cbr
+        return r
+
 
     ''' Find argument by type or return default
         @param [in] i       - Index of argument
-        @param [in] t       - Type to find
+        @param [in] t       - Type to find or list of types to find
         @param [in] d       - Default value to return if not found
         @param [in] args    - Argument lists to search
     '''
     @staticmethod
-    def findByType(i, t, d, *args):
+    def findByType(i, t, d, args):
         for v in args:
-            if (t == callable and callable(v)) or t == type(v):
+            match = False
+            if type(t) == list:
+                if (callable in t and callable(v)) or type(v) in t:
+                    match = True
+            elif (callable == t and callable(v)) or type(v) == t:
+                match = True
+            if match:
                 if not i:
                     return v
                 i -= 1
@@ -187,9 +279,9 @@ class ThreadMsg():
         Return value will be passed to the callback if specified
     '''
     def call(self, *args, **kwargs):
-        cb = self.findByType(0, callable, *args)
-        fn = self.findByType(0, str, '', *args)
-        params = self.findByType(0, dict, {}, *args)
+        cb = self.findByType(0, callable, None, args)
+        fn = self.findByType(0, str, '', args)
+        params = self.findByType(0, dict, {}, args)
         params.update(kwargs)
         if fn:
             if not self.defFunKey:
@@ -208,40 +300,48 @@ class ThreadMsg():
         pp.insert(0, ctx)
         p = tuple(pp)
 
-        # While run flag is set
+        # Allows the exit thread to keep things alive
         while ctx.wantRun():
 
+            # While run flag is set
+            while ctx.wantRun():
+
+                try:
+                    delay = f(*p)
+                    if inspect.isawaitable(delay):
+                        delay = await delay
+                except Exception as e:
+                    ctx.run = False
+                    Log(e)
+                    break
+
+                if delay and 0 > delay:
+                    ctx.run = False
+                    break
+
+                ctx.loops += 1
+
+                # Maximum wait time if user didn't specify
+                if None == delay:
+                    delay = threading.TIMEOUT_MAX
+
+                if delay:
+                    ctx.wait(delay)
+
+            # Run again with the run flag set to false
             try:
-                delay = await f(*p)
+                r = f(*p)
+                if inspect.isawaitable(r):
+                    r = await r
             except Exception as e:
-                Log(traceback.format_exc())
                 ctx.run = False
-                break
-
-            if delay and 0 > delay:
-                ctx.run = False
-                break
-
-            ctx.loops += 1
-
-            # Maximum wait time if user didn't specify
-            if None == delay:
-                delay = threading.TIMEOUT_MAX
-
-            if delay:
-                ctx.wait(delay)
-
-        # Run again with the run flag set to false
-        try:
-            await f(*p)
-        except Exception as e:
-            Log(traceback.format_exc())
+                Log(e)
 
 
     ''' Sets up the async loop for the thread
     '''
     def threadLoop(self, f, p):
-        asyncLoop(self.threadRun(self, f, p))
+        asyncio.run(self.threadRun(self, f, p))
 
 
     ''' Notify's the thread, i.e. breaks the wait state
@@ -287,7 +387,8 @@ class ThreadMsg():
     def join(self):
         self.run = False
         self.notify()
-        self.thread.join()
+        if self.thread.is_alive():
+            self.thread.join()
 
 
     ''' Adds a message to the threads queue
@@ -309,6 +410,17 @@ class ThreadMsg():
         msg = self.msgs.pop()
         self.cond.release()
         return msg
+
+
+    ''' Returns message data from the threads queue
+    '''
+    def getMsgData(self):
+        if not len(self.msgs):
+            return None
+        self.cond.acquire()
+        msg = self.msgs.pop()
+        self.cond.release()
+        return msg['data']
 
 
     ''' Returns True if the thread should keep running

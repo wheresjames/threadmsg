@@ -1,0 +1,5 @@
+
+# v0.1.5 - 2021-12-30
+
+[+] ThreadMsg.findByType() accepts an array of types
+

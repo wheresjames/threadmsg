@@ -13,6 +13,30 @@ except:
 #------------------------------------------------------------------------------
 # Test 1
 
+def test_1():
+
+    def f1():
+        Log('f1()')
+        return 55
+
+    a = [11, 21, 'hi', [1,2,3], 31, {'a':'b'}, 41, f1]
+    Log(a)
+
+    Log(tm.ThreadMsg.findByType(0, int, None, a))
+    assert 11 == tm.ThreadMsg.findByType(0, int, 0, a)
+    assert 21 == tm.ThreadMsg.findByType(1, int, 0, a)
+    assert 31 == tm.ThreadMsg.findByType(2, int, 0, a)
+    assert 41 == tm.ThreadMsg.findByType(3, int, 0, a)
+    assert 'hi' == tm.ThreadMsg.findByType(0, str, '', a)
+    assert 'hi' == tm.ThreadMsg.findByType(2, [str, int], '', a)
+    assert 1 == tm.ThreadMsg.findByType(0, list, [], a)[0]
+    assert 'b' == tm.ThreadMsg.findByType(0, dict, {}, a)['a']
+    assert 55 == tm.ThreadMsg.findByType(1, [list, callable], None, a)()
+
+
+#------------------------------------------------------------------------------
+# Test 2
+
 g_value = 0
 async def countThread(ctx, v1, v2):
 
@@ -35,7 +59,7 @@ async def countThread(ctx, v1, v2):
     return -1
 
 
-def test_1():
+def test_2():
 
     global g_value
 
@@ -56,7 +80,9 @@ def test_1():
 
 
 #------------------------------------------------------------------------------
-# Test 2
+# Test 3
+
+g_testMsg = "Hello thread"
 
 async def msgThread(ctx):
 
@@ -65,22 +91,24 @@ async def msgThread(ctx):
     if not ctx.run:
         Log('Thread is exiting')
 
-    msg = ctx.getMsg()
+    msg = ctx.getMsgData()
     if not msg:
         return
 
     g_value = 1
     Log(msg)
 
+    assert msg== g_testMsg
 
-def test_2():
+
+def test_3():
 
     global g_value
 
     g_value = 0
     t1 = tm.ThreadMsg(msgThread)
 
-    t1.addMsg("Hello thread")
+    t1.addMsg(g_testMsg)
 
     time.sleep(1)
 
@@ -90,7 +118,7 @@ def test_2():
 
 
 #------------------------------------------------------------------------------
-# Test 3
+# Test 4
 
 class funThread(tm.ThreadMsg):
 
@@ -104,7 +132,7 @@ class funThread(tm.ThreadMsg):
     @staticmethod
     async def msgThread(ctx):
         while msg := ctx.getMsg():
-            ctx.mapMsg(None, ctx.callMap, msg)
+            await ctx.mapMsgAsync(None, ctx.callMap, msg)
 
     def fun1(self, a, b):
         Log('fun1()')
@@ -112,18 +140,18 @@ class funThread(tm.ThreadMsg):
         assert b == 2
         return a + b
 
-    def fun2(self, a, b):
+    async def fun2(self, a, b):
         Log('fun2()')
         assert a == 1
         assert b == 2
         return a + b
 
 
-def test_3():
+def test_4():
 
     ctx = funThread()
 
-    def checkReturn(r, e):
+    def checkReturn(ctx, r, e):
         if e:
             Log(e)
         else:
@@ -140,12 +168,14 @@ def test_3():
     ctx.join()
 
 
+
 #------------------------------------------------------------------------------
 
 def main():
     test_1()
     test_2()
     test_3()
+    test_4()
 
 
 if __name__ == '__main__':
