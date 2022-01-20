@@ -17,6 +17,42 @@ Log = print
 '''
 class ThreadMsg():
 
+
+    ''' class ThreadMsgReply
+        Brokers thread reply
+    '''
+    class ThreadMsgReply():
+
+        def __init__(self, loop):
+            self.err = None
+            self.data = None
+            self.loop = loop
+            self.event = asyncio.Event(loop=loop)
+
+        async def wait(self, to):
+            try:
+                if not self.event.is_set():
+                    await asyncio.wait_for(self.event.wait(), to)
+            except asyncio.TimeoutError as e:
+                return False
+            return self.event.is_set()
+
+        def setData(self, data):
+            self.data = data
+            self.loop.call_soon_threadsafe(self.event.set)
+
+        def setError(self, err):
+            self.err = err
+            self.loop.call_soon_threadsafe(self.event.set)
+
+        def getData(self):
+            return self.data if self.event.is_set() else None
+
+        def getError(self):
+            return self.err if self.event.is_set() else None
+
+
+
     ''' Constructor
         @param [in] f       - Pointer to the function to run
                                 The function will receive a pointer to this
@@ -37,13 +73,15 @@ class ThreadMsg():
         self.run = True
         self.loops = 0
         self.lock = threading.Lock()
-        self.cond = threading.Condition(self.lock)
+        self.event = None
+        self.loop = None
+
         self.defFunKey = deffk
 
         # Thread
         self.thread = threading.Thread(target=self.threadLoop, args=(f, p,))
         if start:
-            self.thread.start()
+            self.start()
 
 
     ''' Destructor
@@ -53,8 +91,9 @@ class ThreadMsg():
 
 
     ''' Sets a default function key to use with function mapping
+        @param [in] fk  - Function key name
     '''
-    def setDefaultFunctionKey(fk):
+    def setDefaultFunctionKey(self, fk):
         self.defFunKey = fk
 
     ''' Maps a call to set functions
@@ -287,7 +326,23 @@ class ThreadMsg():
             if not self.defFunKey:
                 raise Exception('Default function key not set')
             params[self.defFunKey] = fn
+
+        tmr = None
+
+        # Callback object
+        if not cb:
+            # Use the callers loop context
+            tmr = self.ThreadMsgReply(asyncio.get_event_loop())
+            def cbCall(ctx, r, e):
+                if e:
+                    tmr.setError(e)
+                else:
+                    tmr.setData(r)
+            cb = cbCall
+
         self.addMsg(params, cb)
+
+        return tmr
 
 
     ''' Static function that handles thread
@@ -299,6 +354,11 @@ class ThreadMsg():
         pp = list(p)
         pp.insert(0, ctx)
         p = tuple(pp)
+
+        # Create sync event
+        ctx.lock.acquire()
+        ctx.event = asyncio.Event(loop=ctx.loop)
+        ctx.lock.release()
 
         # Allows the exit thread to keep things alive
         while ctx.wantRun():
@@ -326,7 +386,7 @@ class ThreadMsg():
                     delay = threading.TIMEOUT_MAX
 
                 if delay:
-                    ctx.wait(delay)
+                    await ctx.wait(delay)
 
             # Run again with the run flag set to false
             try:
@@ -337,19 +397,27 @@ class ThreadMsg():
                 ctx.run = False
                 Log(e)
 
+        ctx.lock.acquire()
+        ctx.event = None
+        ctx.lock.release()
+
 
     ''' Sets up the async loop for the thread
     '''
     def threadLoop(self, f, p):
-        asyncio.run(self.threadRun(self, f, p))
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_until_complete(self.threadRun(self, f, p))
+        self.loop = None
 
 
     ''' Notify's the thread, i.e. breaks the wait state
     '''
     def notify(self):
-        self.cond.acquire()
-        self.cond.notify()
-        self.cond.release()
+        self.lock.acquire()
+        if self.event:
+            self.loop.call_soon_threadsafe(self.event.set)
+        self.lock.release()
 
 
     ''' Enters an efficient interruptable wait state for the specified time.
@@ -358,14 +426,22 @@ class ThreadMsg():
         If notify is called, the wait state will end.
 
     '''
-    def wait(self, t):
+    async def wait(self, t):
         if not self.run or (len(self.msgs) and self.msgwait != self.msgcnt):
             return
-        self.cond.acquire()
-        if self.run and (not len(self.msgs) or self.msgwait == self.msgcnt):
-            self.cond.wait(t)
-        self.msgwait = self.msgcnt
-        self.cond.release()
+
+        try:
+            self.lock.acquire()
+            event = self.event
+            self.lock.release()
+
+            if event:
+                event.clear()
+                if self.run and (not len(self.msgs) or self.msgwait == self.msgcnt):
+                    await asyncio.wait_for(event.wait(), t)
+
+        except asyncio.TimeoutError as e:
+            pass
 
 
     ''' Notifies the thread it should quit
@@ -384,9 +460,10 @@ class ThreadMsg():
 
     ''' Notifies the thread it should quit and waits for the thread to terminate
     '''
-    def join(self):
-        self.run = False
-        self.notify()
+    def join(self, stop=False):
+        if stop:
+            self.run = False
+            self.notify()
         if self.thread.is_alive():
             self.thread.join()
 
@@ -394,11 +471,12 @@ class ThreadMsg():
     ''' Adds a message to the threads queue
     '''
     def addMsg(self, msg, cb=None):
-        self.cond.acquire()
+        self.lock.acquire()
         self.msgs.insert(0, {'data':msg, 'cb':cb})
         self.msgcnt += 1
-        self.cond.notify()
-        self.cond.release()
+        if self.event:
+            self.loop.call_soon_threadsafe(self.event.set)
+        self.lock.release()
 
 
     ''' Returns a message from the threads queue
@@ -406,9 +484,9 @@ class ThreadMsg():
     def getMsg(self):
         if not len(self.msgs):
             return None
-        self.cond.acquire()
+        self.lock.acquire()
         msg = self.msgs.pop()
-        self.cond.release()
+        self.lock.release()
         return msg
 
 
@@ -417,9 +495,9 @@ class ThreadMsg():
     def getMsgData(self):
         if not len(self.msgs):
             return None
-        self.cond.acquire()
+        self.lock.acquire()
         msg = self.msgs.pop()
-        self.cond.release()
+        self.lock.release()
         return msg['data']
 
 

@@ -1,4 +1,9 @@
 
+# v0.2.0 - 2022-01-19
+
+[+] asyncio processing in wait
+[+] Thread message reply object
+
 # v0.1.5 - 2021-12-30
 
 [+] ThreadMsg.findByType() accepts an array of types

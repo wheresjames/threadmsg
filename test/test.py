@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import time
+import asyncio
 import threadmsg as tm
 
 try:
@@ -51,12 +52,10 @@ async def countThread(ctx, v1, v2):
     if not ctx.run:
         Log('Thread is exiting')
 
-    if 5 > g_value:
-        g_value += 1
-        Log(g_value)
-        return .1
+    g_value += 1
+    Log(g_value)
+    return .5
 
-    return -1
 
 
 def test_2():
@@ -71,25 +70,31 @@ def test_2():
     t1.start()
 
     time.sleep(2)
-    assert g_value == 5
 
     t1.stop()
 
     t1.join()
     Log('Thread has exited')
 
+    # Count should be about 5
+    Log(g_value)
+    assert 3 < g_value and 8 > g_value
+
 
 #------------------------------------------------------------------------------
 # Test 3
 
+g_loopCount = 0
 g_testMsg = "Hello thread"
 
 async def msgThread(ctx):
 
-    global g_value
+    global g_value, g_loopCount
 
     if not ctx.run:
         Log('Thread is exiting')
+
+    g_loopCount += 1
 
     msg = ctx.getMsgData()
     if not msg:
@@ -98,23 +103,27 @@ async def msgThread(ctx):
     g_value = 1
     Log(msg)
 
-    assert msg== g_testMsg
+    assert msg == g_testMsg
+
+    return -1
 
 
 def test_3():
 
-    global g_value
+    global g_value, g_loopCount
 
     g_value = 0
+    g_loopCount = 0
     t1 = tm.ThreadMsg(msgThread)
 
     t1.addMsg(g_testMsg)
 
-    time.sleep(1)
-
     t1.join()
 
     assert g_value == 1
+    assert g_loopCount <= 3
+
+    Log(g_loopCount)
 
 
 #------------------------------------------------------------------------------
@@ -123,11 +132,12 @@ def test_3():
 class funThread(tm.ThreadMsg):
 
     def __init__(self):
-        super().__init__(self.msgThread, deffk='_funName')
+        self.count = 0
         self.callMap = {
                 'fun1': self.fun1,
                 'fun2': self.fun2
             }
+        super().__init__(self.msgThread, deffk='_funName')
 
     @staticmethod
     async def msgThread(ctx):
@@ -147,7 +157,7 @@ class funThread(tm.ThreadMsg):
         return a + b
 
 
-def test_4():
+async def test_4():
 
     ctx = funThread()
 
@@ -165,17 +175,27 @@ def test_4():
     ctx.addMsg({'_funName': 'fun1', 'a': 1, 'b': 2})
     ctx.addMsg({'_funName': 'fun2', 'a': 1, 'b': 2})
 
-    ctx.join()
+    reply = ctx.call('fun1', a=1, b=2)
+    assert await reply.wait(5)
+    assert reply.getData() == 3
+
+    ctx.join(True)
 
 
 
 #------------------------------------------------------------------------------
 
-def main():
+async def run():
     test_1()
     test_2()
     test_3()
-    test_4()
+    await test_4()
+
+
+def main():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(run())
 
 
 if __name__ == '__main__':
