@@ -27,7 +27,7 @@ class ThreadMsg():
             self.err = None
             self.data = None
             self.loop = loop
-            self.event = asyncio.Event(loop=loop)
+            self.event = asyncio.Event(loop=loop) if loop else None
 
         async def wait(self, to):
             try:
@@ -37,13 +37,21 @@ class ThreadMsg():
                 return False
             return self.event.is_set()
 
+        def isData(self):
+            return None != self.data
+
+        def isError(self):
+            return None != self.err
+
         def setData(self, data):
             self.data = data
-            self.loop.call_soon_threadsafe(self.event.set)
+            if self.loop:
+                self.loop.call_soon_threadsafe(self.event.set)
 
         def setError(self, err):
             self.err = err
-            self.loop.call_soon_threadsafe(self.event.set)
+            if self.loop:
+                self.loop.call_soon_threadsafe(self.event.set)
 
         def getData(self):
             return self.data if self.event.is_set() else None
@@ -331,14 +339,23 @@ class ThreadMsg():
 
         # Callback object
         if not cb:
-            # Use the callers loop context
-            tmr = self.ThreadMsgReply(asyncio.get_event_loop())
-            def cbCall(ctx, r, e):
-                if e:
-                    tmr.setError(e)
-                else:
-                    tmr.setData(r)
-            cb = cbCall
+            loop = None
+            try:
+                loop = asyncio.get_event_loop()
+            except Exception as e:
+                loop = None
+
+            try:
+                # Use the callers loop context
+                tmr = self.ThreadMsgReply(loop)
+                def cbCall(ctx, r, e):
+                    if e:
+                        tmr.setError(e)
+                    else:
+                        tmr.setData(r)
+                cb = cbCall
+            except Exception as e:
+                tmr = None
 
         self.addMsg(params, cb)
 
@@ -387,6 +404,8 @@ class ThreadMsg():
 
                 if delay:
                     await ctx.wait(delay)
+
+            ctx.loops += 1
 
             # Run again with the run flag set to false
             try:

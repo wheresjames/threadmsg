@@ -182,6 +182,32 @@ async def test_4():
     ctx.join(True)
 
 
+#------------------------------------------------------------------------------
+# Test 5
+
+async def waitThread(ctx, tmr):
+
+    time.sleep(1)
+
+    tmr.setData(True)
+
+def test_5():
+
+    # Check reply object without event loop
+    tmr = tm.ThreadMsg.ThreadMsgReply(None)
+
+    t1 = tm.ThreadMsg(waitThread, (tmr,))
+
+    mx = 5
+    while 0 < mx and not tmr.isData():
+        Log('.')
+        mx -= 1
+        time.sleep(.25)
+
+    assert tmr.isData()
+
+    t1.join(True)
+
 
 #------------------------------------------------------------------------------
 
@@ -190,6 +216,7 @@ async def run():
     test_2()
     test_3()
     await test_4()
+    test_5()
 
 
 def main():

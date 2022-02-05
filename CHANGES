@@ -1,4 +1,9 @@
 
+# v0.2.1 - 2022-02-03
+[!] Loop count still incremented if init fail
+[+] ThreadMsgReply() reply object works outside of asyncio
+
+
 # v0.2.0 - 2022-01-19
 
 [+] asyncio processing in wait
