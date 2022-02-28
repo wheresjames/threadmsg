@@ -23,10 +23,11 @@ class ThreadMsg():
     '''
     class ThreadMsgReply():
 
-        def __init__(self, loop):
+        def __init__(self, loop, params={}):
             self.err = None
             self.data = None
             self.loop = loop
+            self.params = params
             self.event = asyncio.Event(loop=loop) if loop else None
 
         async def wait(self, to):
@@ -59,6 +60,8 @@ class ThreadMsg():
         def getError(self):
             return self.err if self.event.is_set() else None
 
+        def getParams(self):
+            return self.params
 
 
     ''' Constructor
@@ -240,12 +243,12 @@ class ThreadMsg():
             r = self.mapCall(f, fm, msg['data'])
         except Exception as e:
             if callable(msg['cb']):
-                msg['cb'](self, None, e)
+                msg['cb'](self, msg['data'], None, e)
             else:
                 raise e
             return
         if callable(msg['cb']):
-            msg['cb'](self, r, None)
+            msg['cb'](self, msg['data'], r, None)
         return r
 
 
@@ -280,14 +283,14 @@ class ThreadMsg():
                 r = await r
         except Exception as e:
             if callable(msg['cb']):
-                cbr = msg['cb'](self, None, e)
+                cbr = msg['cb'](self, msg['data'], None, e)
                 if inspect.isawaitable(cbr):
                     cbr = await cbr
             else:
                 raise e
             return
         if callable(msg['cb']):
-            cbr = msg['cb'](self, r, None)
+            cbr = msg['cb'](self, msg['data'], r, None)
             if inspect.isawaitable(cbr):
                 cbr = await cbr
         return r
@@ -335,9 +338,8 @@ class ThreadMsg():
                 raise Exception('Default function key not set')
             params[self.defFunKey] = fn
 
-        tmr = None
-
         # Callback object
+        tmr = None
         if not cb:
             loop = None
             try:
@@ -347,8 +349,8 @@ class ThreadMsg():
 
             try:
                 # Use the callers loop context
-                tmr = self.ThreadMsgReply(loop)
-                def cbCall(ctx, r, e):
+                tmr = self.ThreadMsgReply(loop, params)
+                def cbCall(ctx, p, r, e):
                     if e:
                         tmr.setError(e)
                     else:

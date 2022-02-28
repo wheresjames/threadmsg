@@ -102,8 +102,8 @@ async def run():
     # Create the thread
     t1 = funThread()
 
-    def showReturn(ctx, data, err):
-        print(data, err)
+    def showReturn(ctx, params, data, err):
+        print(params, data, err)
 
     # Call add function with callback
     t1.call(showReturn, 'add', a=1, b=2)

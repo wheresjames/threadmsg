@@ -161,7 +161,7 @@ async def test_4():
 
     ctx = funThread()
 
-    def checkReturn(ctx, r, e):
+    def checkReturn(ctx, p, r, e):
         if e:
             Log(e)
         else:

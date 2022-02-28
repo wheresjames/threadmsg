@@ -1,4 +1,7 @@
 
+# v0.2.2 - 2022-02-25
+[+] Added context to call() callbacks and wait objects
+
 # v0.2.1 - 2022-02-03
 [!] Loop count still incremented if init fail
 [+] ThreadMsgReply() reply object works outside of asyncio

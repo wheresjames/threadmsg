@@ -124,7 +124,7 @@ Thread safe message queue with function calls
     # Create the thread
     t1 = funThread()
 
-    def showReturn(ctx, data, err):
+    def showReturn(ctx, params, data, err):
         print(data, err)
 
     # Call add function with callback
