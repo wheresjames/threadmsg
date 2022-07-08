@@ -1,4 +1,7 @@
 
+# v0.2.3 - 2022-07-07
+[+] on_error() function for error reporting
+
 # v0.2.2 - 2022-02-25
 [+] Added context to call() callbacks and wait objects
 

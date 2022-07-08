@@ -1,5 +1,5 @@
 name            threadmsg
-version         0.2.2
+version         0.2.3
 description     Thread safe message queue
 company         wheresjames
 author          Robert Umbehant

@@ -6,8 +6,6 @@ import asyncio
 import traceback
 import inspect
 
-Log = print
-
 
 #==================================================================================================
 ''' class ThreadMsg
@@ -86,6 +84,7 @@ class ThreadMsg():
         self.lock = threading.Lock()
         self.event = None
         self.loop = None
+        self.on_threadmsg_error = print
 
         self.defFunKey = deffk
 
@@ -98,7 +97,7 @@ class ThreadMsg():
     ''' Destructor
     '''
     def __del__(self):
-        self.join()
+        self.join(True)
 
 
     ''' Sets a default function key to use with function mapping
@@ -242,6 +241,7 @@ class ThreadMsg():
         try:
             r = self.mapCall(f, fm, msg['data'])
         except Exception as e:
+            self.on_threadmsg_error(e)
             if callable(msg['cb']):
                 msg['cb'](self, msg['data'], None, e)
             else:
@@ -282,6 +282,7 @@ class ThreadMsg():
             if inspect.isawaitable(r):
                 r = await r
         except Exception as e:
+            self.on_threadmsg_error(e)
             if callable(msg['cb']):
                 cbr = msg['cb'](self, msg['data'], None, e)
                 if inspect.isawaitable(cbr):
@@ -391,7 +392,7 @@ class ThreadMsg():
                         delay = await delay
                 except Exception as e:
                     ctx.run = False
-                    Log(e)
+                    ctx.on_threadmsg_error(e)
                     break
 
                 if delay and 0 > delay:
@@ -416,7 +417,7 @@ class ThreadMsg():
                     r = await r
             except Exception as e:
                 ctx.run = False
-                Log(e)
+                ctx.on_threadmsg_error(e)
 
         ctx.lock.acquire()
         ctx.event = None
